@@ -1,0 +1,1 @@
+Place MSI/EXE installers in this 'installers' folder. Files are served at /installers/<filename>.

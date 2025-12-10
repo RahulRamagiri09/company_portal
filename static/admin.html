@@ -1,0 +1,301 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Admin Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+<style>
+:root{--primary:#0ea5e9;--accent:#2563eb;--muted:#6b7280}
+body{font-family:Inter,Arial;background:#f3f6fb;margin:0;padding:30px}
+.container{width:95%;max-width:1100px;margin:0 auto}
+
+.login{
+  max-width:420px;margin:80px auto;background:#fff;padding:24px;
+  border-radius:12px;box-shadow:0 6px 18px rgba(15,23,42,0.06);text-align:center
+}
+.login input{
+  width:86%;padding:12px;margin-top:12px;border-radius:8px;
+  border:1px solid #e6e9ef
+}
+.login button{
+  margin-top:12px;padding:12px 18px;border-radius:8px;border:none;
+  background:var(--accent);color:#fff;cursor:pointer
+}
+
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.header h1{color:var(--accent)}
+
+.section{
+  background:#fff;padding:18px;border-radius:12px;
+  box-shadow:0 6px 18px rgba(15,23,42,0.04);margin-bottom:16px
+}
+
+.form-row{
+  display:flex;gap:8px;align-items:center;margin-top:10px
+}
+.form-row input,.form-row select{
+  padding:10px;border-radius:8px;border:1px solid #e6e9ef;
+  font-size:14px
+}
+
+.table{width:100%;border-collapse:collapse;margin-top:12px}
+.table th,.table td{
+  padding:10px;border-bottom:1px solid #eef2f7;text-align:left
+}
+
+.btn{padding:8px 10px;border-radius:8px;border:none;cursor:pointer}
+.btn-edit{background:orange;color:#fff}
+.btn-del{background:#ef4444;color:#fff}
+.btn-agent-del{background:#dc2626;color:#fff;border:none;padding:6px 10px;border-radius:8px;cursor:pointer}
+.btn-agent-del:hover{opacity:0.85}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+  <!-- LOGIN BOX -->
+  <div id="loginBox" class="login">
+    <h2>Admin Access</h2>
+    <input id="adminKey" type="password" placeholder="Enter Admin Key">
+    <br><button onclick="login()">Enter Dashboard</button>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dashboard" style="display:none">
+    <div class="header">
+      <h1>Admin Dashboard</h1>
+      <div>Signed in as <strong>admin</strong></div>
+    </div>
+
+    <!-- Applications -->
+    <div class="section">
+      <h3>Approved Applications</h3>
+
+      <div class="form-row">
+        <input id="appName" placeholder="Application Name">
+
+        <select id="appSource" onchange="toggleSourceFields()">
+          <option value="choco">Chocolatey (choco)</option>
+          <option value="local">Local Installer (.exe/.msi)</option>
+        </select>
+
+        <input id="appPkg" placeholder="choco package (ex: vscode)">
+        <input id="appPath" placeholder="installer path (ex: installers/app.exe)" style="display:none">
+
+        <button class="btn" style="background:var(--primary);color:#fff" onclick="addApp()">Add App</button>
+      </div>
+
+      <table class="table" id="appsTable">
+        <thead><tr><th>ID</th><th>Name</th><th>Source</th><th>Package/Path</th><th>Actions</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Agents -->
+    <div class="section">
+      <h3>Agents</h3>
+      <table class="table" id="agentsTable">
+        <thead><tr>
+          <th>ID</th>
+          <th>Device Name</th>
+          <th>Last Seen</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Logs -->
+    <div class="section">
+      <h3>Logs</h3>
+      <table class="table" id="logsTable">
+        <thead><tr><th>Job</th><th>App</th><th>Agent</th><th>Status</th><th>Error</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const API = '/api/';
+let sessionToken = '';
+
+function show(msg){ alert(msg); }
+
+/* ----------------------------
+   LOGIN
+---------------------------- */
+async function login(){
+  const key = document.getElementById('adminKey').value;
+  const r = await fetch('/admin/auth', {
+    method:'POST',
+    headers: { 'Content-Type':'application/json' },
+    body: JSON.stringify({ key })
+  });
+
+  const j = await r.json();
+  if(j.valid){
+    sessionToken = j.token;
+    document.getElementById('loginBox').style.display='none';
+    document.getElementById('dashboard').style.display='block';
+    loadAll();
+  } else {
+    show('Invalid key');
+  }
+}
+
+function headers(){
+  return {
+    'Content-Type':'application/json',
+    'Authorization':'Bearer ' + sessionToken
+  };
+}
+
+/* ----------------------------
+   SOURCE SWITCH
+---------------------------- */
+function toggleSourceFields() {
+  const src = document.getElementById("appSource").value;
+  const pkg = document.getElementById("appPkg");
+  const path = document.getElementById("appPath");
+
+  pkg.style.display = (src === "choco") ? "block" : "none";
+  path.style.display = (src === "local") ? "block" : "none";
+}
+
+/* ----------------------------
+   ADD APP
+---------------------------- */
+async function addApp(){
+  const name = document.getElementById('appName').value;
+  const source = document.getElementById('appSource').value;
+
+  let pkg = null, path = null;
+
+  if (source === "choco") pkg = document.getElementById('appPkg').value;
+  else path = document.getElementById('appPath').value;
+
+  const body = { name, source, package:pkg, installer_path:path };
+
+  await fetch(API + 'apps', {
+    method:'POST', headers:headers(), body: JSON.stringify(body)
+  });
+
+  loadApps();
+}
+
+/* ----------------------------
+   LOAD APPS
+---------------------------- */
+async function loadApps(){
+  const res = await fetch(API + 'apps', { headers:headers() });
+  const list = await res.json();
+
+  const tbody = document.querySelector('#appsTable tbody');
+  tbody.innerHTML='';
+
+  list.forEach(a=>{
+    const pkgOrPath = a.source === "choco" ? a.package : a.installer_path;
+    tbody.innerHTML += `
+      <tr>
+        <td>${a.id}</td>
+        <td>${a.name}</td>
+        <td>${a.source}</td>
+        <td>${pkgOrPath}</td>
+        <td>
+          <button class="btn btn-edit" onclick="editApp(${a.id})">Edit</button>
+          <button class="btn btn-del" onclick="deleteApp(${a.id})">Delete</button>
+        </td>
+      </tr>`;
+  });
+}
+
+/* ----------------------------
+   DELETE APP
+---------------------------- */
+async function deleteApp(id){
+  if(!confirm("Delete application?")) return;
+  await fetch(API + 'apps/' + id, { method:'DELETE', headers:headers() });
+  loadApps();
+}
+
+/* ----------------------------
+   LOAD AGENTS (UPDATED)
+---------------------------- */
+async function loadAgents(){
+  const res = await fetch(API + 'agents', { headers:headers() });
+  const list = await res.json();
+
+  const tbody = document.querySelector('#agentsTable tbody');
+  tbody.innerHTML='';
+
+  list.forEach(a=>{
+    const last = a.last_seen ? new Date(a.last_seen).toLocaleString() : "Never";
+    const online = a.last_seen && (Date.now() - new Date(a.last_seen).getTime() < 120000);
+
+    tbody.innerHTML += `
+      <tr>
+        <td>${a.id}</td>
+        <td>${a.hostname || "unknown"}</td>
+        <td>${last}</td>
+        <td>
+            <span style="color:${online?"#16a34a":"#dc2626"};font-weight:700;">
+                ${online ? "● Online" : "● Offline"}
+            </span>
+        </td>
+        <td>
+          <button class="btn-agent-del" onclick="deleteAgent(${a.id})">Delete Agent</button>
+        </td>
+      </tr>`;
+  });
+}
+
+/* ----------------------------
+   DELETE AGENT
+---------------------------- */
+async function deleteAgent(id){
+  if(!confirm("Remove agent from this device?")) return;
+  await fetch(API + "agents/" + id, {
+    method:"DELETE",
+    headers:headers()
+  });
+  loadAgents();
+}
+
+/* ----------------------------
+   LOAD LOGS
+---------------------------- */
+async function loadLogs(){
+  const res = await fetch(API + 'logs', { headers:headers() });
+  const list = await res.json();
+
+  const tbody = document.querySelector('#logsTable tbody');
+  tbody.innerHTML='';
+
+  list.forEach(l=>{
+    tbody.innerHTML += `
+      <tr>
+        <td>${l.id}</td>
+        <td>${l.app_name || l.app_id}</td>
+        <td>${l.agent_id}</td>
+        <td>${l.status}</td>
+        <td>${l.message || ""}</td>
+      </tr>`;
+  });
+}
+
+function loadAll(){
+  loadApps();
+  loadAgents();
+  loadLogs();
+}
+
+</script>
+
+</body>
+</html>

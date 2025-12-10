@@ -1,0 +1,204 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Company App Store</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+<style>
+:root{--primary:#2563eb;--muted:#6b7280}
+body{font-family:Inter,Arial;background:#f3f6fb;margin:0;padding:30px}
+.container{width:90%;max-width:900px;margin:0 auto}
+.h1{text-align:center;font-size:30px;color:var(--primary);font-weight:700;margin-bottom:20px}
+.search{display:flex;justify-content:center;gap:10px;margin-bottom:20px}
+.search input{width:50%;padding:12px;border-radius:10px;border:1px solid #ddd;font-size:15px}
+.grid{display:grid;grid-template-columns:1fr;gap:12px}
+.card{background:#fff;padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:center}
+.appname{font-size:18px;font-weight:700}
+.pkg{color:var(--muted);font-size:13px;margin-top:4px}
+.install{background:var(--primary);color:#fff;padding:10px 14px;border-radius:8px;border:none;cursor:pointer;font-size:14px}
+.install:hover{opacity:0.9}
+.status{font-size:13px;color:var(--muted);margin-bottom:10px;text-align:center}
+</style>
+</head>
+
+<body>
+<div class="container">
+  <div class="h1">Company App Store</div>
+  <div class="status" id="agentStatus">Checking agent status...</div>
+
+  <div class="search">
+    <input id="q" placeholder="Search applications…">
+  </div>
+
+  <div id="list" class="grid"></div>
+</div>
+
+<script>
+/*
+  Employee page:
+  - API (server) on the fixed server IP
+  - AGENT is local (127.0.0.1:5050)
+*/
+const API = "http://10.0.1.103:5050/api/"; // central server API (fixed)
+const AGENT = "http://127.0.0.1:5050";    // local agent
+
+// friendly UI helper
+function notify(msg){ try { alert(msg); } catch(e) { console.log(msg); } }
+
+// =======================================
+// CHECK IF AGENT RUNNING (with timeout)
+// =======================================
+async function isAgentRunning() {
+    try {
+        const res = await fetch(AGENT + "/ping", { method: "GET", mode: "cors" , cache: "no-store" });
+        if (!res.ok) return false;
+        const j = await res.json().catch(()=>null);
+        return !!j && j.ok === true;
+    } catch (e) { return false; }
+}
+
+// =======================================
+// GET HOSTNAME FROM LOCAL AGENT (/ping returns hostname/ip now)
+// =======================================
+async function getAgentInfo() {
+    try {
+        const res = await fetch(AGENT + "/ping", { method: "GET", mode: "cors", cache: "no-store" });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch { return null; }
+}
+
+// =======================================
+// REGISTER AGENT ON SERVER
+// =======================================
+async function registerAgentOnServer(hostname, ip) {
+    try {
+        const body = { hostname: hostname || "unknown-device", ip: ip || "" };
+        const res = await fetch(API + "agents/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+        });
+        if (!res.ok) {
+            const t = await res.text().catch(()=>res.statusText);
+            console.error("register failure:", res.status, t);
+            return false;
+        }
+        return true;
+    } catch (e) {
+        console.error("register error:", e);
+        return false;
+    }
+}
+
+// =======================================
+// (Removed) Agent installer download - Agent is pre-installed by IT
+// =======================================
+
+// =======================================
+// SEND INSTALL REQUEST TO AGENT
+// =======================================
+async function sendInstallRequest(app) {
+    try {
+        const res = await fetch(AGENT + "/install", {
+            method: "POST",
+            mode: "cors",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ app: app})
+        });
+
+        if (!res.ok) {
+            // try to show server message
+            const txt = await res.text().catch(()=>null);
+            notify("Agent returned failure: " + res.status + " " + (txt || res.statusText));
+            return;
+        }
+        const j = await res.json().catch(()=>({ message: "OK" }));
+        notify("Install result: " + (j.message || JSON.stringify(j)));
+    } catch (err) {
+        console.error("sendInstallRequest error:", err);
+        notify("Failed to contact local agent: " + err.message);
+    }
+}
+
+// =======================================
+// MAIN INSTALL HANDLER (Simplified - No prompts)
+// =======================================
+async function installApp(id) {
+    // fetch app metadata from server
+    let r = await fetch(API + "apps/" + id);
+    if (!r.ok) { notify("Failed to load app metadata"); return; }
+    const app = await r.json();
+
+    // Check if local agent is running
+    if (await isAgentRunning()) {
+        document.getElementById("agentStatus").innerText = "Agent: Online - Ready to install";
+        document.getElementById("agentStatus").style.color = "#16a34a"; // green
+
+        // obtain hostname from agent (so server logs correct device)
+        const info = await getAgentInfo();
+        await registerAgentOnServer(info?.hostname, info?.ip);
+
+        // Direct installation - no prompts
+        return sendInstallRequest(app);
+    }
+
+    // Agent is offline - show message to contact IT (agent is pre-installed)
+    document.getElementById("agentStatus").innerText = "Agent: Offline - Contact IT Support";
+    document.getElementById("agentStatus").style.color = "#dc2626"; // red
+    notify("Agent is not running on this computer.\n\nPlease contact IT Support to ensure the Internal Installer Agent is properly installed and running.");
+}
+
+// =======================================
+// Render apps list
+// =======================================
+async function load() {
+    // update agent status with clear messaging
+    const running = await isAgentRunning();
+    const statusEl = document.getElementById("agentStatus");
+
+    if (running) {
+        statusEl.innerText = "Agent: Online - Ready to install";
+        statusEl.style.color = "#16a34a"; // green
+    } else {
+        statusEl.innerText = "Agent: Offline - Contact IT Support";
+        statusEl.style.color = "#dc2626"; // red
+    }
+
+    const res = await fetch(API + "apps");
+    const apps = await res.json();
+    render(apps);
+}
+
+function render(list) {
+    const el = document.getElementById("list");
+    el.innerHTML = "";
+    list.forEach(a => {
+        let info = a.source === "choco" ? a.package : a.installer_path;
+        el.innerHTML += `
+        <div class="card">
+            <div>
+                <div class="appname">${a.name}</div>
+                <div class="pkg">${info}</div>
+            </div>
+            <button class="install" onclick="installApp(${a.id})">Install</button>
+        </div>`;
+    });
+}
+
+document.getElementById("q").addEventListener("keyup", function(){
+    const q = this.value.toLowerCase();
+    const cards = document.querySelectorAll(".card");
+    cards.forEach(c => {
+        const name = c.querySelector(".appname").innerText.toLowerCase();
+        c.style.display = name.includes(q) ? "flex" : "none";
+    });
+});
+
+load();
+</script>
+
+</body>
+</html>
